@@ -31,6 +31,7 @@ def parse_schedule(excel_path, target_group="6"):
     wb = openpyxl.load_workbook(excel_path, data_only=True)
     ws = wb['Arkusz1']
 
+    # Mapa właściwości komórek (uwzględnia scalone obszary)
     cell_info = {}
     for r in range(1, ws.max_row + 1):
         for c in range(1, ws.max_column + 1):
@@ -43,21 +44,21 @@ def parse_schedule(excel_path, target_group="6"):
             for c in range(rng.min_col, rng.max_col + 1):
                 cell_info[(r, c)] = (val, rng.min_row, rng.max_row, rng.min_col, rng.max_col, top_left)
 
-    # Znajdowanie bloków dniowych (na podstawie kolumny 2 zawierającej daty)
+    # Precyzyjne wykrywanie bloków dniowych na podstawie scalonych komórek z datami w Kolumnie B
     day_blocks = []
-    current_date = None
-    current_start_row = None
+    for rng in ws.merged_cells.ranges:
+        if rng.min_col <= 2 <= rng.max_col:
+            val = ws.cell(rng.min_row, rng.min_col).value
+            if isinstance(val, datetime):
+                day_blocks.append((val, rng.min_row, rng.max_row))
 
-    for r in range(1, ws.max_row + 1):
-        c2 = ws.cell(r, 2).value
-        if isinstance(c2, datetime):
-            if current_date is not None:
-                day_blocks.append((current_date, current_start_row, r - 1))
-            current_date = c2
-            current_start_row = r
+    # Sortowanie dni wg kolejności wierszy
+    day_blocks.sort(key=lambda x: x[1])
 
-    if current_date is not None:
-        day_blocks.append((current_date, current_start_row, ws.max_row))
+    HEADER_IGNORABLES = {
+        '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20',
+        '0', '30', '45', 'C', 'S', 'W', 'CP', 'SP'
+    }
 
     events = []
 
@@ -86,11 +87,17 @@ def parse_schedule(excel_path, target_group="6"):
                 if top_left in seen_top_lefts:
                     continue
                     
-                # Nakładanie się zakresu wierszy z wierszami docelowej grupy
+                val_str = str(val).strip()
+                
+                # Ignoruj nagłówki godzinowe/minutowe oraz oznaczenia tabeli
+                if val_str in HEADER_IGNORABLES:
+                    continue
+                    
+                # Sprawdź, czy zakres wierszy komórki nakłada się z wierszami Grupy 6
                 if not (max_r < min_g_row or min_r > max_g_row):
                     seen_top_lefts.add(top_left)
                     
-                    # Kolumna 6 = 07:00, każda kolejna kolumna = 15 minut
+                    # Kolumna 6 = 07:00, każda kolejna = 15 min
                     start_min = 7 * 60 + (min_c - 6) * 15
                     end_min = 7 * 60 + (max_c - 5) * 15
                     
@@ -100,11 +107,10 @@ def parse_schedule(excel_path, target_group="6"):
                     dt_start = datetime.combine(date_val.date(), t_start)
                     dt_end = datetime.combine(date_val.date(), t_end)
                     
-                    raw_text = str(val).strip()
                     events.append({
                         "start": dt_start,
                         "end": dt_end,
-                        "text": raw_text
+                        "text": val_str
                     })
     return events
 
@@ -124,7 +130,6 @@ def generate_ics(events, output_ics_path, title="Plan Zajęć UR - Grupa 6"):
         location = ""
         description = "\n".join(lines)
         
-        # Ekstrakcja lokalizacji
         for line in lines:
             if any(kw in line.lower() for kw in ["sala", "ul.", "budynek", "online", "a5", "g4", "a0", "b1", "b2", "c7"]):
                 location = line
