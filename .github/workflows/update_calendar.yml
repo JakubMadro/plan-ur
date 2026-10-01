@@ -1,0 +1,39 @@
+name: Aktualizacja Kalendarza ICS UR
+
+on:
+  schedule:
+    # Uruchamiaj codziennie o 5:00 UTC (7:00 czasu polskiego)
+    - cron: '0 5 * * *'
+  workflow_dispatch: # Umożliwia ręczne uruchomienie z panelu GitHub
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Pobranie kodu repozytorium
+        uses: actions/checkout@v4
+
+      - name: Konfiguracja Pythona
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalacja zależności
+        run: |
+          pip install openpyxl icalendar
+
+      - name: Generowanie kalendarza ICS dla Grupy 6
+        run: |
+          python generate_calendar.py 6 grupa_6.ics
+
+      - name: Publikacja na GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .
+          destination_dir: .
+          keep_files: true
